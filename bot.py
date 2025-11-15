@@ -44,7 +44,7 @@ TICKET_COOLDOWN = 600  # 10 Minutes between tickets
 # ==========================================
 
 # Tracking user cooldowns in memory
-## user_cooldowns = {}
+user_cooldowns = {}
 
 # 1. THE POP-UP MESSAGE (When they first click the button)
 EPHEMERAL_MESSAGES = {
@@ -127,12 +127,6 @@ QUESTIONS = {
     }
 }
 
-# ==========================================
-# 🤖 SYSTEM CODE
-# ==========================================
-
-user_cooldowns = {}
-
 class PersistentBot(commands.Bot):
     def __init__(self):
         intents = discord.Intents.default()
@@ -163,10 +157,15 @@ class TicketLauncher(discord.ui.View):
             if time.time() - last_time < TICKET_COOLDOWN:
                 remaining = int(TICKET_COOLDOWN - (time.time() - last_time))
                 minutes = remaining // 60
+                # This checks fast, so we can use send_message
                 await interaction.response.send_message(f"❄️ **Chill out, Chief!** Wait {minutes} minutes before opening another ticket.", ephemeral=True)
                 return
 
         user_cooldowns[user_id] = time.time()
+        
+        # 🛑 FIX APPLIED: Defer here to stop the 3-second timeout crash
+        await interaction.response.defer(ephemeral=True)
+        
         await create_ticket(interaction, ticket_type)
 
     @discord.ui.button(label="Report Bug", style=discord.ButtonStyle.red, custom_id="btn_bug", emoji="🐛")
@@ -227,11 +226,11 @@ async def create_ticket(interaction: discord.Interaction, ticket_type):
     ticket_channel = await guild.create_text_channel(channel_name, category=category, overwrites=overwrites)
     
     # 🆕 CUSTOM EPHEMERAL MESSAGE
-    # We format the message with the user's mention and the new channel's mention
     msg_template = EPHEMERAL_MESSAGES[ticket_type]
     formatted_msg = msg_template.format(user=interaction.user.mention, channel=ticket_channel.mention)
     
-    await interaction.response.send_message(formatted_msg, ephemeral=True)
+    # 🛑 FIX APPLIED: Use 'followup' instead of 'response' because we deferred
+    await interaction.followup.send(formatted_msg, ephemeral=True)
     
     try:
         await run_interview(ticket_channel, interaction.user, ticket_type)
@@ -396,6 +395,8 @@ Found someone breaking the peace? 😠 An unauthorized attack on your city? Some
     embed = discord.Embed(title="Greetings, Chiefs! 👋", description=desc, color=discord.Color.from_rgb(52, 152, 219))
     await ctx.send(embed=embed, view=TicketLauncher())
 
+# Run the web server to keep the bot alive on Render
 keep_alive()
 
+# Start the bot
 bot.run(TOKEN)
